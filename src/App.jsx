@@ -58,7 +58,7 @@ function App() {
         formData.append(`attachments`, file)
       })
       
-      // Send to backend API through Vite proxy
+      // Send to backend API via proxy
       const response = await fetch('/api/feedback', {
         method: 'POST',
         body: formData
