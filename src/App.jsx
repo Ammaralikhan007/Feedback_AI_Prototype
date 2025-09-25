@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react'
 import { Search, Bell, User, Settings, Info, Upload, X, FileText, Calendar, Clock, UserX, ChevronDown } from 'lucide-react'
 
 function App() {
+  // API base URL - uses environment variable or fallback to production
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://api.clarity360.io'
+  
   // View state management
   const [currentView, setCurrentView] = useState('submit') // 'submit' or 'submissions'
   
@@ -193,8 +196,9 @@ function App() {
     setError(null)
     
     try {
-      console.log('Attempting to fetch from /api/feedback')
-      const response = await fetch('/api/feedback', {
+      const apiUrl = `${API_BASE_URL}/api/feedback`
+      console.log('Attempting to fetch from', apiUrl)
+      const response = await fetch(apiUrl, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json'
@@ -274,7 +278,7 @@ function App() {
     })
     
     try {
-      const response = await fetch(`/api/feedback/${feedbackId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/feedback/${feedbackId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json'
@@ -364,8 +368,8 @@ function App() {
         filesCount: files.length
       })
       
-      // Send to backend API via proxy
-      const response = await fetch('/api/feedback', {
+      // Send to backend API directly
+      const response = await fetch(`${API_BASE_URL}/api/feedback`, {
         method: 'POST',
         body: formData
       })
@@ -761,8 +765,9 @@ function App() {
                     <button 
                       onClick={async () => {
                         try {
-                          console.log('Testing direct API call...')
-                          const response = await fetch('https://api.clarity360.io/api/feedback')
+                          const testUrl = `${API_BASE_URL}/api/feedback`
+                          console.log('Testing direct API call to:', testUrl)
+                          const response = await fetch(testUrl)
                           console.log('Direct API response:', response.status)
                           const data = await response.json()
                           console.log('Direct API data:', data)
@@ -832,7 +837,7 @@ function App() {
                     <div className="bg-red-100 rounded p-3 mt-3">
                       <p className="text-red-800 text-sm font-medium">Connection Details:</p>
                       <ul className="text-red-700 text-sm mt-1 space-y-1">
-                        <li>• Backend URL: https://api.clarity360.io</li>
+                        <li>• Backend URL: {API_BASE_URL}</li>
                         <li>• Endpoint: /api/feedback</li>
                         <li>• Check your internet connection</li>
                         <li>• Verify the server is running</li>
