@@ -524,7 +524,7 @@ function App() {
                     </button>
                   </div>
                   <p className="text-red-600 text-sm mt-2">
-                    Make sure your backend is running at http://localhost:3001
+                    Make sure your backend is running 
                   </p>
                 </div>
               )}
