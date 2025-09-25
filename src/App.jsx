@@ -485,7 +485,7 @@ function App() {
                       onClick={async () => {
                         try {
                           console.log('Testing direct API call...')
-                          const response = await fetch('http://api.clarity360.io/api/feedback')
+                          const response = await fetch('https://api.clarity360.io/api/feedback')
                           console.log('Direct API response:', response.status)
                           const data = await response.json()
                           console.log('Direct API data:', data)
@@ -524,7 +524,7 @@ function App() {
                     </button>
                   </div>
                   <p className="text-red-600 text-sm mt-2">
-                    Make sure your backend is running 
+                    Make sure your backend is running at http://localhost:3001
                   </p>
                 </div>
               )}
