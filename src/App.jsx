@@ -16,6 +16,17 @@ function App() {
   const [feedbackData, setFeedbackData] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  
+  // Form submission state
+  const [submitLoading, setSubmitLoading] = useState(false)
+  const [submitError, setSubmitError] = useState(null)
+  const [submitSuccess, setSubmitSuccess] = useState(null)
+  
+  // Clear form messages when user starts typing
+  const clearFormMessages = () => {
+    setSubmitError(null)
+    setSubmitSuccess(null)
+  }
 
   const concernTypes = [
     'Harassment / Bullying',
@@ -92,11 +103,94 @@ function App() {
     })
   }
 
+  // Enhanced error categorization
+  const categorizeError = (error, response = null) => {
+    if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+      return {
+        type: 'network',
+        title: 'Network Connection Error',
+        message: 'Unable to connect to the server. Please check your internet connection.',
+        suggestion: 'Verify that api.clarity360.io is accessible and your internet connection is stable.',
+        canRetry: true
+      }
+    }
+    
+    if (response) {
+      switch (response.status) {
+        case 400:
+          return {
+            type: 'client',
+            title: 'Invalid Request',
+            message: 'The server couldn\'t understand the request.',
+            suggestion: 'Please refresh the page and try again.',
+            canRetry: true
+          }
+        case 401:
+          return {
+            type: 'auth',
+            title: 'Authentication Required',
+            message: 'You need to be authenticated to access this resource.',
+            suggestion: 'Please check your authentication credentials.',
+            canRetry: false
+          }
+        case 403:
+          return {
+            type: 'auth',
+            title: 'Access Forbidden',
+            message: 'You don\'t have permission to access this resource.',
+            suggestion: 'Contact your administrator for access permissions.',
+            canRetry: false
+          }
+        case 404:
+          return {
+            type: 'client',
+            title: 'Resource Not Found',
+            message: 'The requested endpoint was not found on the server.',
+            suggestion: 'The API endpoint may have changed. Contact support.',
+            canRetry: false
+          }
+        case 500:
+          return {
+            type: 'server',
+            title: 'Server Error',
+            message: 'The server encountered an internal error.',
+            suggestion: 'This is a temporary issue. Please try again in a few moments.',
+            canRetry: true
+          }
+        case 502:
+        case 503:
+        case 504:
+          return {
+            type: 'server',
+            title: 'Service Unavailable',
+            message: 'The server is temporarily unavailable.',
+            suggestion: 'The service may be under maintenance. Please try again later.',
+            canRetry: true
+          }
+        default:
+          return {
+            type: 'unknown',
+            title: `HTTP Error ${response.status}`,
+            message: response.statusText || 'An unknown error occurred.',
+            suggestion: 'Please try again or contact support if the problem persists.',
+            canRetry: true
+          }
+      }
+    }
+    
+    return {
+      type: 'unknown',
+      title: 'Unexpected Error',
+      message: error.message || 'An unexpected error occurred.',
+      suggestion: 'Please try again or contact support if the problem persists.',
+      canRetry: true
+    }
+  }
+
   // Fetch submissions data
   const fetchSubmissions = async () => {
     setLoading(true)
     setError(null)
-    setFeedbackData([]) // Clear existing data
     
     try {
       console.log('Attempting to fetch from /api/feedback')
@@ -108,28 +202,51 @@ function App() {
       })
       
       console.log('Response status:', response.status)
-      console.log('Response headers:', response.headers)
       
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        const errorInfo = categorizeError(new Error(`HTTP ${response.status}`), response)
+        setError(errorInfo)
+        setFeedbackData([])
+        return
       }
       
       const data = await response.json()
       console.log('Successfully received data:', data)
-      console.log('Data type:', typeof data, 'Is array:', Array.isArray(data))
       
-      // Ensure data is always an array and set it
-      const submissions = Array.isArray(data) ? data : (data.data ? data.data : [])
+      // Validate data structure
+      if (!data) {
+        throw new Error('No data received from server')
+      }
+      
+      // Handle different response formats
+      let submissions = []
+      if (Array.isArray(data)) {
+        submissions = data
+      } else if (data.data && Array.isArray(data.data)) {
+        submissions = data.data
+      } else if (data.submissions && Array.isArray(data.submissions)) {
+        submissions = data.submissions
+      } else {
+        throw new Error('Invalid data format received from server')
+      }
+      
       setFeedbackData(submissions)
       
       if (submissions.length === 0) {
-        setError('No submissions found in database')
+        setError({
+          type: 'info',
+          title: 'No Submissions Found',
+          message: 'There are currently no feedback submissions in the database.',
+          suggestion: 'Submit some feedback to see it appear here.',
+          canRetry: false
+        })
       }
       
     } catch (err) {
       console.error('Detailed fetch error:', err)
-      setError(`Failed to connect to backend API: ${err.message}`)
-      setFeedbackData([]) // Set empty array on error, no mock data
+      const errorInfo = categorizeError(err)
+      setError(errorInfo)
+      setFeedbackData([])
     } finally {
       setLoading(false)
     }
@@ -146,6 +263,16 @@ function App() {
 
   // Handle status change
   const handleStatusChange = async (feedbackId, newStatus) => {
+    const originalData = feedbackData
+    
+    // Optimistically update the UI
+    setFeedbackData(prev => {
+      if (!Array.isArray(prev)) return []
+      return prev.map(item => 
+        item.id === feedbackId ? { ...item, status: newStatus } : item
+      )
+    })
+    
     try {
       const response = await fetch(`/api/feedback/${feedbackId}`, {
         method: 'PATCH',
@@ -155,22 +282,64 @@ function App() {
         body: JSON.stringify({ status: newStatus })
       })
 
-      if (response.ok) {
-        // Update local state with safety check
-        setFeedbackData(prev => {
-          if (!Array.isArray(prev)) return []
-          return prev.map(item => 
-            item.id === feedbackId ? { ...item, status: newStatus } : item
-          )
-        })
+      if (!response.ok) {
+        // Revert optimistic update
+        setFeedbackData(originalData)
+        
+        const errorInfo = categorizeError(new Error(`HTTP ${response.status}`), response)
+        alert(`Failed to update status: ${errorInfo.message}`)
+        return
       }
+      
+      // Confirm the update was successful
+      console.log(`Successfully updated feedback ${feedbackId} status to ${newStatus}`)
+      
     } catch (error) {
       console.error('Failed to update status:', error)
+      
+      // Revert optimistic update
+      setFeedbackData(originalData)
+      
+      const errorInfo = categorizeError(error)
+      alert(`Error updating status: ${errorInfo.message}`)
     }
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    
+    // Clear previous messages
+    setSubmitError(null)
+    setSubmitSuccess(null)
+    
+    // Validation
+    if (description.trim().length < 10) {
+      setSubmitError({
+        type: 'validation',
+        title: 'Invalid Input',
+        message: 'Description must be at least 10 characters long.',
+        suggestion: 'Please provide more details about your feedback.',
+        canRetry: false
+      })
+      return
+    }
+    
+    // Check file sizes
+    const maxFileSize = 10 * 1024 * 1024 // 10MB
+    for (const file of files) {
+      if (file.size > maxFileSize) {
+        setSubmitError({
+          type: 'validation',
+          title: 'File Too Large',
+          message: `File "${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(1)}MB).`,
+          suggestion: 'Please reduce the file size to under 10MB or choose a different file.',
+          canRetry: false
+        })
+        return
+      }
+    }
+    
+    setSubmitLoading(true)
     
     try {
       // Create FormData to handle file uploads
@@ -179,12 +348,20 @@ function App() {
       // Add text fields
       formData.append('concernType', concernType)
       formData.append('department', department)
-      formData.append('description', description)
+      formData.append('description', description.trim())
       formData.append('isAnonymous', isAnonymous)
       
       // Add files
       files.forEach((file, index) => {
         formData.append(`attachments`, file)
+      })
+      
+      console.log('Submitting feedback with data:', {
+        concernType,
+        department,
+        description: description.trim(),
+        isAnonymous,
+        filesCount: files.length
       })
       
       // Send to backend API via proxy
@@ -193,27 +370,55 @@ function App() {
         body: formData
       })
       
-      if (response.ok) {
-        const result = await response.json()
-        alert('Feedback submitted successfully!')
+      if (!response.ok) {
+        const errorInfo = categorizeError(new Error(`HTTP ${response.status}`), response)
         
-        // Reset form
-        setConcernType('')
-        setDepartment('')
-        setDescription('')
-        setFiles([])
-        setIsAnonymous(false)
-        
-        // Refresh submissions if currently viewing them
-        if (currentView === 'submissions') {
-          fetchSubmissions()
+        // Try to get more specific error from response
+        try {
+          const errorData = await response.json()
+          if (errorData.message) {
+            errorInfo.message = errorData.message
+          }
+        } catch (parseError) {
+          // Ignore JSON parse errors, use default error message
         }
-      } else {
-        throw new Error('Failed to submit feedback')
+        
+        setSubmitError(errorInfo)
+        return
       }
+      
+      const result = await response.json()
+      console.log('Feedback submitted successfully:', result)
+      
+      setSubmitSuccess({
+        title: 'Feedback Submitted Successfully!',
+        message: 'Your feedback has been received and will be reviewed by the appropriate team.',
+        details: result.id ? `Submission ID: #${result.id}` : null
+      })
+      
+      // Reset form
+      setConcernType('')
+      setDepartment('')
+      setDescription('')
+      setFiles([])
+      setIsAnonymous(false)
+      
+      // Refresh submissions if currently viewing them
+      if (currentView === 'submissions') {
+        fetchSubmissions()
+      }
+      
+      // Auto-clear success message after 5 seconds
+      setTimeout(() => {
+        setSubmitSuccess(null)
+      }, 5000)
+      
     } catch (error) {
       console.error('Error submitting feedback:', error)
-      alert('Error submitting feedback. Please try again.')
+      const errorInfo = categorizeError(error)
+      setSubmitError(errorInfo)
+    } finally {
+      setSubmitLoading(false)
     }
   }
 
@@ -320,6 +525,58 @@ function App() {
                 </p>
               </div>
 
+              {/* Success Message */}
+              {submitSuccess && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+                  <div className="flex items-start">
+                    <div className="flex-shrink-0">
+                      <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="ml-3">
+                      <h3 className="font-semibold text-green-800">{submitSuccess.title}</h3>
+                      <p className="text-green-700 mt-1">{submitSuccess.message}</p>
+                      {submitSuccess.details && (
+                        <p className="text-green-600 text-sm mt-2 font-mono">{submitSuccess.details}</p>
+                      )}
+                    </div>
+                    <button 
+                      onClick={() => setSubmitSuccess(null)}
+                      className="ml-auto text-green-400 hover:text-green-600"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Error Message */}
+              {submitError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+                  <div className="flex items-start">
+                    <div className="flex-shrink-0">
+                      <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="ml-3 flex-1">
+                      <h3 className="font-semibold text-red-800">{submitError.title}</h3>
+                      <p className="text-red-700 mt-1">{submitError.message}</p>
+                      {submitError.suggestion && (
+                        <p className="text-red-600 text-sm mt-2">💡 {submitError.suggestion}</p>
+                      )}
+                    </div>
+                    <button 
+                      onClick={() => setSubmitError(null)}
+                      className="ml-auto text-red-400 hover:text-red-600"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Form Card */}
               <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
                 <div className="px-8 py-6 border-b border-gray-200 flex items-center justify-between">
@@ -374,7 +631,10 @@ function App() {
                     <textarea
                       id="description"
                       value={description}
-                      onChange={(e) => setDescription(e.target.value)}
+                      onChange={(e) => {
+                        setDescription(e.target.value)
+                        clearFormMessages()
+                      }}
                       placeholder="Please provide details about your concern or feedback..."
                       className="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                       rows={6}
@@ -453,10 +713,27 @@ function App() {
                   <div className="pt-4">
                     <button
                       type="submit"
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-colors focus:ring-4 focus:ring-blue-300 focus:outline-none"
+                      disabled={submitLoading || description.trim().length < 10}
+                      className={`w-full font-medium py-3 px-4 rounded-lg transition-colors focus:ring-4 focus:ring-blue-300 focus:outline-none flex items-center justify-center ${
+                        submitLoading || description.trim().length < 10
+                          ? 'bg-gray-400 cursor-not-allowed'
+                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      }`}
                     >
-                      Submit Feedback
+                      {submitLoading ? (
+                        <>
+                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                          Submitting...
+                        </>
+                      ) : (
+                        'Submit Feedback'
+                      )}
                     </button>
+                    {description.trim().length < 10 && description.trim().length > 0 && (
+                      <p className="text-red-500 text-sm mt-2">
+                        Description must be at least 10 characters (currently {description.trim().length})
+                      </p>
+                    )}
                   </div>
                 </form>
               </div>
@@ -513,19 +790,55 @@ function App() {
 
               {/* Error State */}
               {error && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-                  <div className="flex items-center justify-between">
-                    <p className="text-red-800">Error: {error}</p>
-                    <button 
-                      onClick={fetchSubmissions}
-                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm"
-                    >
-                      Retry
-                    </button>
+                <div className={`border rounded-lg p-4 mb-6 ${
+                  error.type === 'info' 
+                    ? 'bg-blue-50 border-blue-200' 
+                    : 'bg-red-50 border-red-200'
+                }`}>
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex-1">
+                      <h3 className={`font-semibold ${
+                        error.type === 'info' ? 'text-blue-800' : 'text-red-800'
+                      }`}>
+                        {error.title || 'Error'}
+                      </h3>
+                      <p className={`mt-1 ${
+                        error.type === 'info' ? 'text-blue-700' : 'text-red-700'
+                      }`}>
+                        {error.message}
+                      </p>
+                      {error.suggestion && (
+                        <p className={`mt-2 text-sm ${
+                          error.type === 'info' ? 'text-blue-600' : 'text-red-600'
+                        }`}>
+                          💡 {error.suggestion}
+                        </p>
+                      )}
+                    </div>
+                    {error.canRetry && (
+                      <button 
+                        onClick={fetchSubmissions}
+                        className={`ml-4 px-4 py-2 text-white rounded-lg text-sm font-medium ${
+                          error.type === 'info'
+                            ? 'bg-blue-600 hover:bg-blue-700'
+                            : 'bg-red-600 hover:bg-red-700'
+                        }`}
+                      >
+                        Retry
+                      </button>
+                    )}
                   </div>
-                  <p className="text-red-600 text-sm mt-2">
-                    Make sure your backend is running at https://api.clarity360.io
-                  </p>
+                  {error.type === 'network' && (
+                    <div className="bg-red-100 rounded p-3 mt-3">
+                      <p className="text-red-800 text-sm font-medium">Connection Details:</p>
+                      <ul className="text-red-700 text-sm mt-1 space-y-1">
+                        <li>• Backend URL: https://api.clarity360.io</li>
+                        <li>• Endpoint: /api/feedback</li>
+                        <li>• Check your internet connection</li>
+                        <li>• Verify the server is running</li>
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
 
