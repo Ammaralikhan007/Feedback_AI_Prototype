@@ -106,6 +106,18 @@ function App() {
     })
   }
 
+  // Get tag styling with different colors
+  const getTagColors = (index) => {
+    const colors = [
+      'bg-blue-100 text-blue-700 border-blue-200',
+      'bg-green-100 text-green-700 border-green-200', 
+      'bg-purple-100 text-purple-700 border-purple-200',
+      'bg-pink-100 text-pink-700 border-pink-200',
+      'bg-indigo-100 text-indigo-700 border-indigo-200'
+    ]
+    return colors[index % colors.length]
+  }
+
   // Enhanced error categorization
   const categorizeError = (error, response = null) => {
     if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
@@ -904,46 +916,85 @@ function App() {
                         )}
 
                         {/* Footer with Department, Anonymous/ID, Date */}
-                        <div className="border-t border-gray-100 pt-4 flex items-center justify-between">
-                          <div className="flex items-center space-x-4 text-sm text-gray-500">
-                            {feedback.department && (
-                              <div className="flex items-center">
-                                <span className="font-medium">{feedback.department}</span>
-                              </div>
-                            )}
-                            <div className="flex items-center">
-                              {feedback.isAnonymous ? (
-                                <>
-                                  <UserX size={14} className="mr-1" />
-                                  <span>Anonymous</span>
-                                </>
-                              ) : (
-                                <>
-                                  <User size={14} className="mr-1" />
-                                  <span>{feedback.submittedBy || `ID: ${feedback.id}`}</span>
-                                </>
+                        <div className="border-t border-gray-100 pt-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center space-x-4 text-sm text-gray-500">
+                              {feedback.department && (
+                                <div className="flex items-center">
+                                  <span className="font-medium">{feedback.department}</span>
+                                </div>
                               )}
+                              <div className="flex items-center">
+                                {feedback.isAnonymous ? (
+                                  <>
+                                    <UserX size={14} className="mr-1" />
+                                    <span>Anonymous</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <User size={14} className="mr-1" />
+                                    <span>{feedback.submittedBy || `ID: ${feedback.id}`}</span>
+                                  </>
+                                )}
+                              </div>
+                              <div className="flex items-center">
+                                <Calendar size={14} className="mr-1" />
+                                {formatDate(feedback.createdAt)}
+                              </div>
                             </div>
-                            <div className="flex items-center">
-                              <Calendar size={14} className="mr-1" />
-                              {formatDate(feedback.createdAt)}
+
+                            {/* Change Status Button */}
+                            <div className="relative group">
+                              <select
+                                value={feedback.status}
+                                onChange={(e) => handleStatusChange(feedback.id, e.target.value)}
+                                className="appearance-none bg-gray-50 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer pr-8"
+                              >
+                                <option value="pending">Pending</option>
+                                <option value="In Progress">In Progress</option>
+                                <option value="Resolved">Resolved</option>
+                                <option value="closed">Closed</option>
+                              </select>
+                              <ChevronDown size={14} className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" />
                             </div>
                           </div>
 
-                          {/* Change Status Button */}
-                          <div className="relative group">
-                            <select
-                              value={feedback.status}
-                              onChange={(e) => handleStatusChange(feedback.id, e.target.value)}
-                              className="appearance-none bg-gray-50 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer pr-8"
-                            >
-                              <option value="pending">Pending</option>
-                              <option value="In Progress">In Progress</option>
-                              <option value="Resolved">Resolved</option>
-                              <option value="closed">Closed</option>
-                            </select>
-                            <ChevronDown size={14} className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" />
-                          </div>
+                          {/* Tags Section */}
+                          {(() => {
+                            // Check for tags in the API response
+                            let tags = feedback.tags || 
+                                      feedback.tag || 
+                                      feedback.categories || 
+                                      feedback.labels || 
+                                      feedback.keywords || 
+                                      []
+                            
+                            // Convert single tag to array if needed
+                            if (typeof tags === 'string') {
+                              tags = tags.split(',').map(tag => tag.trim()).filter(tag => tag)
+                            }
+                            
+                            // Only show tags section if there are actual tags
+                            return tags && tags.length > 0 ? (
+                              <div className="mt-3">
+                                <div className="flex flex-wrap gap-2">
+                                  {tags.slice(0, 5).map((tag, index) => (
+                                    <span 
+                                      key={index}
+                                      className={`px-3 py-1 rounded-full text-xs font-medium border ${getTagColors(index)}`}
+                                    >
+                                      #{String(tag).toLowerCase().replace(/\s+/g, '-')}
+                                    </span>
+                                  ))}
+                                  {tags.length > 5 && (
+                                    <span className="px-3 py-1 rounded-full text-xs font-medium border bg-gray-100 text-gray-600 border-gray-200">
+                                      +{tags.length - 5} more
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ) : null
+                          })()}
                         </div>
                       </div>
                     ))
